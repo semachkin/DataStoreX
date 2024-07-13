@@ -112,9 +112,12 @@ void FilterOutdatedClients(CLIENTSTB *clients) {
 		time_t curtime = time(0);
 		uint16_t timediff = cast(uint16_t, difftime(curtime, client.lastrqst));
 		if (timediff > MAX_DATING_TIME) {
-			char *token; STRPrint(token, client.token);
-			printinfo2("client %s disconnected", token);
-			free(token);
+			printinfo2("client %s disconnected", client.token);
+
+			free(client.storage);
+			free(client.token);
+			fclose(client.tsvfile);
+
 			TBUFFDel(clients, i, CLIENT);
 			i--;
 		}
@@ -125,16 +128,20 @@ ENUMT DoAction(RQSTHEADERS headers, CLIENTSTB *clients, SOCKET sock) {
 	CLIENT *client = NULL;
 	for (size_t i = 0; i < clients->len; i++) {
 		CLIENT *curclient = clients->buff + i;
-		if (strcmp(curclient->token.p, headers.token.p) == 0) {
+		if (strncmp(curclient->token, headers.token.p, headers.token.len) == 0) {
 			client = curclient;
 			break;
 		}
 	}
 	switch (headers.action) {
 		case ACT_HANDSHAKE: {
+			char *storage; STRPrint(storage, headers.d.storage);
 			if (client == NULL) {
 				CLIENT clientobj = {0};
-				clientobj.token = headers.token;
+				
+				char *token; STRPrint(token, headers.token);
+				clientobj.token = token;
+
 				if (clients->len == MAX_CLIENTS) {
 					SendResponse(sock, ResponseStatus(ERR_SERVICE_UNAVAILABLE));
 					return SEND_ERROR;
@@ -142,14 +149,27 @@ ENUMT DoAction(RQSTHEADERS headers, CLIENTSTB *clients, SOCKET sock) {
 				client = clients->buff + clients->len;
 				TBUFFAdd(clients, clientobj);
 
-				char *token; STRPrint(token, headers.token);
 				printinfo2("client %s added", token);
-				free(token);
 			}
-			client->storage = headers.d.storage;
+			
+			MEMFree(client->storage);
+			client->storage = storage;
+
+			char filedir[MAX_PATH] = {0};
+
+			sprintf(filedir, STORAGES_DIR"/%s", storage);
+			client->tsvfile = fopen(filedir, "a+");
 			SendResponse(sock, ResponseStatus(SUCCESS_CREATED));
+			break;
+		}
+		if (client == NULL) {
+			SendResponse(sock, ResponseStatus(ERR_UNAUTHORIZED));
+			return SEND_ERROR;
 		}
 		case ACT_PUT: {
+			
+		}
+		case ACT_DELETE: {
 
 		}
 	}
@@ -217,6 +237,7 @@ RQSTHEADERS ParseRequest(char *buffer) {
 
 		STRVAL name = stro(start, valstart-start-2);
 		STRVAL *valuestr = ARRAlloc(STRVAL, 1);
+
 		valuestr->p = valstart;
 		valuestr->len = headerend-valstart;
 

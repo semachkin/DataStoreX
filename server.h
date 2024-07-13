@@ -81,8 +81,9 @@ typedef struct SRVCONFIG_S {
 } SRVCONFIG;
 
 typedef struct CLIENT_S {
-	STRVAL token;
-	STRVAL storage;
+	char *token;
+	char *storage;
+	FILE *tsvfile;
 	time_t lastrqst;
 } CLIENT;
 
