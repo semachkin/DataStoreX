@@ -27,9 +27,6 @@ void HashListRealloc(HASHLIST *list, uint16_t newsize) {
     list->size = newsize;
 }
 
-#define hashfunc(k, str) \
-    for (uint16_t l = 0; l < str.len; l++) k ^= k + cast(BYTE, str.p[l]);
-
 HASHSTRVAL *HashGet(HASHLIST *list, STRVAL key) {
     uint16_t hash = 0; 
     hashfunc(hash, key);

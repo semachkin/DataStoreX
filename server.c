@@ -116,7 +116,6 @@ void FilterOutdatedClients(CLIENTSTB *clients) {
 
 			free(client.storage);
 			free(client.token);
-			fclose(client.tsvfile);
 
 			TBUFFDel(clients, i, CLIENT);
 			i--;
@@ -132,6 +131,10 @@ ENUMT DoAction(RQSTHEADERS headers, CLIENTSTB *clients, SOCKET sock) {
 			client = curclient;
 			break;
 		}
+	}
+	if (headers.action != ACT_HANDSHAKE && client == NULL) {
+		SendResponse(sock, ResponseStatus(ERR_UNAUTHORIZED));
+		return SEND_ERROR;
 	}
 	switch (headers.action) {
 		case ACT_HANDSHAKE: {
@@ -151,30 +154,70 @@ ENUMT DoAction(RQSTHEADERS headers, CLIENTSTB *clients, SOCKET sock) {
 
 				printinfo2("client %s added", token);
 			}
-			
 			MEMFree(client->storage);
 			client->storage = storage;
 
-			char filedir[MAX_PATH] = {0};
+			char storagedir[MAX_PATH] = {0};
+			sprintf(storagedir, STORAGES_DIR"/%s", storage);
+			_mkdir(cast(const char*, storagedir));
 
-			sprintf(filedir, STORAGES_DIR"/%s", storage);
-			client->tsvfile = fopen(filedir, "a+");
 			SendResponse(sock, ResponseStatus(SUCCESS_CREATED));
 			break;
 		}
-		if (client == NULL) {
-			SendResponse(sock, ResponseStatus(ERR_UNAUTHORIZED));
-			return SEND_ERROR;
-		}
-		case ACT_PUT: {
-			
-		}
-		case ACT_DELETE: {
+		default: {
+			uint16_t keyhash = 0;
+			hashfunc(keyhash, headers.d.key);
 
+			char keyfiledir[MAX_PATH] = {0};
+			sprintf(keyfiledir, STORAGES_DIR"%s/%x", client->storage, keyhash);
+
+			ENUMT editres = EditStorage(&headers, keyfiledir);
+			switch (editres) {
+				case SUCCESS:
+					SendResponse(sock, ResponseStatus(SUCCESS_OK));
+				case SEND_BODY:
+					SendResponse(sock, headers.body.p);
+					MEMFree(headers.body.p);
+				default:
+					SendResponse(sock, ResponseStatus(ERR_INTERNAL_SERVER_ERR));
+					return SEND_ERROR;
+			}
 		}
 	}
 	if (client) {
 		client->lastrqst = time(0);
+	}
+	return SUCCESS;
+}
+
+ENUMT EditStorage(RQSTHEADERS *headers, char *keydir) {
+	switch (headers->action) {
+		case ACT_PUT: {
+			FILE *keyfile = fopen(keydir, "a+");
+			if (keyfile == NULL) return SEND_ERROR;
+
+			size_t writed = fwrite(headers->body.p, 1, headers->body.len, keyfile);
+			printf("writed %lld need %lld\n", writed, headers->body.len);
+		}
+		case ACT_GET: {
+			FILE *keyfile = fopen(keydir, "r");
+			if (keyfile == NULL) return SEND_ERROR;
+
+			fseek(keyfile, 0, SEEK_END);
+			size_t len = ftell(keyfile);
+			rewind(keyfile);
+
+			char *filebuff = ARRAlloc(char, len+1);
+			fread(filebuff, 1, len, keyfile);
+			filebuff[len] = '\0';
+			headers->body.p = filebuff;
+
+			return SEND_BODY;
+		}
+		case ACT_DELETE: {
+			int deleteres = remove(keydir);
+			if (deleteres != 0 || errno != ENOENT) return SEND_ERROR;
+		}
 	}
 	return SUCCESS;
 }
@@ -257,6 +300,8 @@ RQSTHEADERS ParseRequest(char *buffer) {
 			headers.action = ACT_PUT;
 		} else if (isaction("DELETE")) {
 			headers.action = ACT_DELETE;
+		} else if (isaction("GET")) {
+			headers.action = ACT_GET;
 		} else {
 			headers.action = ACT_UNKNOWN;
 		}

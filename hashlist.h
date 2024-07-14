@@ -32,6 +32,9 @@ typedef struct HASHLIST_S {
 #define HashIndexing(l, s, p) \
     { STRVAL key = stro(s, strlen(s)); p = HashGet(l, key); }
 
+#define hashfunc(k, str) \
+    for (uint16_t l = 0; l < str.len; l++) k ^= k + cast(BYTE, str.p[l]);
+
 #ifndef ARRAlloc
 #define ARRAlloc(t, s) (cast(t*, malloc(s*sizeof(t))))
 #endif

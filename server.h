@@ -83,7 +83,6 @@ typedef struct SRVCONFIG_S {
 typedef struct CLIENT_S {
 	char *token;
 	char *storage;
-	FILE *tsvfile;
 	time_t lastrqst;
 } CLIENT;
 
@@ -112,7 +111,8 @@ enum LOGLVL {
 enum STATUS {
 	SUCCESS,
 	SEND_ERROR,
-	CLIENT_CLOSE
+	CLIENT_CLOSE,
+	SEND_BODY
 };
 enum HTTPMETHOD {
 	METHOD_UNKNOWN,
@@ -124,7 +124,8 @@ enum SRCACTION {
 	ACT_UNKNOWN,
 	ACT_HANDSHAKE,
 	ACT_PUT,
-	ACT_DELETE
+	ACT_DELETE,
+	ACT_GET
 };
 enum DATATYPE {
 	DT_NULL,
@@ -141,5 +142,6 @@ ENUMT SendResponse(SOCKET sock, char *response);
 RQSTHEADERS ParseRequest(char *buffer);
 ENUMT CheckRequestMeta(RQSTHEADERS headers, SOCKET sock);
 ENUMT DoAction(RQSTHEADERS headers, CLIENTSTB *clients, SOCKET sock);
+ENUMT EditStorage(RQSTHEADERS *headers, char *keydir);
 
 static SRVCONFIG config;
