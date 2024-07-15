@@ -17,7 +17,7 @@ int main(void) {
 
 	WSADATA wsadata = {0};
 	WSAAssert(WSAStartup(WINSOCK_VERSION, &wsadata) != SOCKET_ERROR);
-	printinfo1("SERVER START");
+	printinfo1("WSA STARTUP");
 
 	SOCKADDR_IN serversockaddr = {0};
 	serversockaddr.sin_addr.S_un.S_addr = INADDR_ANY;
@@ -28,7 +28,7 @@ int main(void) {
 	WSAAssert(serversock != INVALID_SOCKET);
 
 	BOOL reusesocketval = TRUE;
-	DWORD rcvtimeoutval = 1000;
+	DWORD rcvtimeoutval = 1;
 	TIMEVAL seltimeout = {0, 100};
 	int sockaddrlen = sizeof(SOCKADDR_IN);
 
@@ -42,12 +42,16 @@ int main(void) {
 	CLIENTSTB activeclients = {0};
 
 	for (;;) {
-		fd_set socketsclone = socketsset;
-		FD_ZERO(&socketsset);
+		fd_set fdclone = socketsset;
+		socketsset.fd_count = 0;
 		FD_SET(serversock, &socketsset);
 
 		int selectres = select(0, &socketsset, NULL, NULL, &seltimeout);
 		WSAAssert(selectres != SOCKET_ERROR);
+
+		for (u_int i = 0; i < fdclone.fd_count; i++) {
+			FD_SET(fdclone.fd_array[i], &socketsset);
+		}
 
 		if (selectres > 0) {
 			SOCKADDR_IN clientsockaddr;
@@ -56,6 +60,8 @@ int main(void) {
 			printinfo3("Connected to %s:%d", inet_ntoa(clientsockaddr.sin_addr), htons(clientsockaddr.sin_port));
 
 			WSAAssert(setsockopt(clientsock, SOL_SOCKET, SO_RCVTIMEO, cast(char*, &rcvtimeoutval), sizeof(DWORD)) != SOCKET_ERROR);
+			WSAAssert(setsockopt(clientsock, SOL_SOCKET, SO_REUSEADDR, cast(char*, &reusesocketval), sizeof(BOOL)) != SOCKET_ERROR);
+			
 			if (socketsset.fd_count < MAX_LISTENERS) {
 				FD_SET(clientsock, &socketsset);
 			} else {
@@ -63,45 +69,44 @@ int main(void) {
 				SendResponse(clientsock, ResponseStatus(ERR_SERVICE_UNAVAILABLE));
 			}
 		}
-
-		for (size_t i = 1; i < socketsclone.fd_count; i++) {
-			FD_SET(socketsclone.fd_array[i], &socketsset);
-		}
 		
 		FilterOutdatedClients(&activeclients);
 
-		#define removesock() \
-			FD_CLR(cursocket, &socketsset); closesocket(cursocket)
-
-		for (size_t i = 1; i < socketsset.fd_count; i++) {
-			//printf("%d\n", i);
+		for (size_t i = 0; i < socketsset.fd_count; i++) {
 			SOCKET cursocket = socketsset.fd_array[i];
 			
 			char buffer[BUFFER_LEN+1] = {0};
 			size_t bufferlen = recv(cursocket, buffer, BUFFER_LEN, RECV_FLAGS);
-			WSAAssert(bufferlen != SOCKET_ERROR);
-			if (WSAGetLastError() == WSAETIMEDOUT) {
-				removesock();
-				continue;
-			}
 
+			if (bufferlen == SOCKET_ERROR) {
+				int wsaerr = WSAGetLastError();
+				WSAAssert(wsaerr == WSAETIMEDOUT || wsaerr == WSAENOTCONN);
+				if (wsaerr == WSAENOTCONN) goto remove_socket_wc;
+				goto remove_socket; 
+			}
 			if (bufferlen == BUFFER_LEN) {
 				printwarn2("request size more than %d", BUFFER_LEN);
 				SendResponse(cursocket, ResponseStatus(ERR_BAD_REQUEST));
-				removesock();
+				goto remove_socket;
 			} else if (bufferlen > 0) {
 				RQSTHEADERS headers = ParseRequest(buffer);
 				ENUMT checkStatus = CheckRequestMeta(headers, cursocket);
 				if (checkStatus == SUCCESS) {
 					ENUMT actionStatus = DoAction(headers, &activeclients, cursocket);
-					if (actionStatus != SUCCESS) { removesock(); }
+					if (actionStatus != SUCCESS) goto remove_socket;
 				} else
-					removesock();
+					goto remove_socket;
 				continue;
 			}
-			removesock();
+
+remove_socket:
+			SOCKADDR_IN sockaddr;
+			WSAAssert(getpeername(cursocket, (const PSOCKADDR)&sockaddr, (int*)&sockaddrlen) != SOCKET_ERROR);
+			printinfo3("%s:%d disconnected", inet_ntoa(sockaddr.sin_addr), htons(sockaddr.sin_port));
+			closesocket(cursocket);
+remove_socket_wc:
+			FD_CLR(cursocket, &socketsset); 
 		}
-		#undef removesock
 	}
 	return SUCCESS;
 }
@@ -169,15 +174,17 @@ ENUMT DoAction(RQSTHEADERS headers, CLIENTSTB *clients, SOCKET sock) {
 			hashfunc(keyhash, headers.d.key);
 
 			char keyfiledir[MAX_PATH] = {0};
-			sprintf(keyfiledir, STORAGES_DIR"%s/%x", client->storage, keyhash);
+			sprintf(keyfiledir, STORAGES_DIR"/%s/%x", client->storage, keyhash);
 
 			ENUMT editres = EditStorage(&headers, keyfiledir);
 			switch (editres) {
 				case SUCCESS:
 					SendResponse(sock, ResponseStatus(SUCCESS_OK));
+					break;
 				case SEND_BODY:
 					SendResponse(sock, headers.body.p);
 					MEMFree(headers.body.p);
+					break;
 				default:
 					SendResponse(sock, ResponseStatus(ERR_INTERNAL_SERVER_ERR));
 					return SEND_ERROR;
@@ -196,9 +203,9 @@ ENUMT EditStorage(RQSTHEADERS *headers, char *keydir) {
 			FILE *keyfile = fopen(keydir, "a+");
 			if (keyfile == NULL) return SEND_ERROR;
 
-			size_t writed = fwrite(headers->body.p, 1, headers->body.len, keyfile);
-			printf("writed %lld need %lld\n", writed, headers->body.len);
-		}
+			fprintf(keyfile, "%s", headers->body.p);
+			fclose(keyfile);
+		} break;
 		case ACT_GET: {
 			FILE *keyfile = fopen(keydir, "r");
 			if (keyfile == NULL) return SEND_ERROR;
@@ -212,12 +219,13 @@ ENUMT EditStorage(RQSTHEADERS *headers, char *keydir) {
 			filebuff[len] = '\0';
 			headers->body.p = filebuff;
 
+			fclose(keyfile);
 			return SEND_BODY;
 		}
-		case ACT_DELETE: {
+		case ACT_DELETE: { 
 			int deleteres = remove(keydir);
-			if (deleteres != 0 || errno != ENOENT) return SEND_ERROR;
-		}
+			if (deleteres != 0 && errno != ENOENT) return SEND_ERROR;
+		} break;
 	}
 	return SUCCESS;
 }
@@ -361,11 +369,13 @@ byte LogLvlInt(char *logstr) {
 }
 
 void WSAPanic() {
-	printfail2("WSA Error: %d", WSAGetLastError());
+	int wsaerror = WSAGetLastError();
+	printfail2("WSA Error: %d", wsaerror);
 	WSACleanup();
 	exit(EXIT_FAILURE);
 }
 void Panic() {
-	printfail2("Error: %lu", GetLastError());
+	DWORD err = GetLastError();
+	printfail2("Error: %lu", err);
 	exit(EXIT_FAILURE);
 }
