@@ -181,6 +181,13 @@ ENUMT DoAction(RQSTHEADERS headers, CLIENTSTB *clients, SOCKET sock) {
 				case SUCCESS:
 					SendResponse(sock, ResponseStatus(SUCCESS_OK));
 					break;
+				case FILE_TOO_BIG:
+					char responseBuff[BUFFER_LEN] = {0};
+					char headersBuff[64] = {0};
+					sprintf(headersBuff, "Max-Size: %d", MAX_STORAGE_KEY_SIZE);
+					ResponseFormat(responseBuff, ERR_INSUFICIENT, headersBuff, "");
+					SendResponse(sock, responseBuff);
+					break;
 				case SEND_BODY:
 					SendResponse(sock, headers.body.p);
 					MEMFree(headers.body.p);
@@ -202,6 +209,12 @@ ENUMT EditStorage(RQSTHEADERS *headers, char *keydir) {
 		case ACT_PUT: {
 			FILE *keyfile = fopen(keydir, "a+");
 			if (keyfile == NULL) return SEND_ERROR;
+
+			size_t filesize = ftell(keyfile);
+			if (filesize + headers->body.len > MAX_STORAGE_KEY_SIZE) {
+				fclose(keyfile);
+				return FILE_TOO_BIG;
+			}
 
 			fprintf(keyfile, "%s", headers->body.p);
 			fclose(keyfile);

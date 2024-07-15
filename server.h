@@ -17,6 +17,8 @@
 
 #define MAX_DATING_TIME 2
 
+#define MAX_STORAGE_KEY_SIZE 0xA00000 // 10 MiB
+
 #define DEFAULT_PORT 1922
 #define DEFAULT_LOGFILE "console.log"
 #define DEFAULT_LOGLVL "INFO"
@@ -55,8 +57,10 @@
 #define ERR_BAD_GATEWAY "502 Bad Gateway"
 #define ERR_SERVICE_UNAVAILABLE "503 Service unavailable"
 #define ERR_TIMEOUT "504 Gateway Timeout"
+#define ERR_INSUFICIENT "507 Insufficient Storage"
 
 #define ResponseStatus(s) ("HTTP/1.1 "s"\r\n\r\n")
+#define ResponseFormat(pt, s, h, b) (sprintf(pt, "HTTP/1.1 %s\r\n%s\r\n\r\n%s", s, h, b))
 
 #define TBUFF(t, l) struct {uint32_t len; t buff[l];}
 
@@ -112,7 +116,8 @@ enum STATUS {
 	SUCCESS,
 	SEND_ERROR,
 	CLIENT_CLOSE,
-	SEND_BODY
+	SEND_BODY,
+	FILE_TOO_BIG
 };
 enum HTTPMETHOD {
 	METHOD_UNKNOWN,
