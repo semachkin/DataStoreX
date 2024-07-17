@@ -166,32 +166,38 @@ ENUMT DoAction(RQSTHEADERS headers, CLIENTSTB *clients, SOCKET sock) {
 			sprintf(storagedir, STORAGES_DIR"/%s", storage);
 			_mkdir(cast(const char*, storagedir));
 
-			SendResponse(sock, ResponseStatus(SUCCESS_CREATED));
+			char responseBuff[BUFFER_LEN] = {0};
+			char headersBuff[HEADERS_BUFF_SIZE] = {0};
+			sprintf(headersBuff, "BSS: %d", BODY_SLICE_SIZE);
+			ResponseFormat(responseBuff, SUCCESS_CREATED, headersBuff, "");
+			SendResponse(sock, responseBuff);
 			break;
 		}
 		default: {
 			uint16_t keyhash = 0;
 			hashfunc(keyhash, headers.d.key);
 
-			char keyfiledir[MAX_PATH] = {0};
-			sprintf(keyfiledir, STORAGES_DIR"/%s/%x", client->storage, keyhash);
-
-			ENUMT editres = EditStorage(&headers, keyfiledir);
+			ENUMT editres = EditStorage(&headers, keyhash, client);
 			switch (editres) {
 				case SUCCESS:
 					SendResponse(sock, ResponseStatus(SUCCESS_OK));
 					break;
-				case FILE_TOO_BIG:
+				case FILE_TOO_BIG: {
 					char responseBuff[BUFFER_LEN] = {0};
-					char headersBuff[64] = {0};
+					char headersBuff[HEADERS_BUFF_SIZE] = {0};
 					sprintf(headersBuff, "Max-Size: %d", MAX_STORAGE_KEY_SIZE);
 					ResponseFormat(responseBuff, ERR_INSUFICIENT, headersBuff, "");
 					SendResponse(sock, responseBuff);
-					break;
-				case SEND_BODY:
-					SendResponse(sock, headers.body.p);
-					MEMFree(headers.body.p);
-					break;
+				}	break;
+				case SEND_BODY: {
+					BOOL nfull = client->rinfo.fp != NULL; 
+					char responseBuff[BUFFER_LEN] = {0};
+					char headersBuff[HEADERS_BUFF_SIZE] = {0};
+					sprintf(headersBuff, "NF: %d\r\nContent-Type: text/plain\r\nContent-Length: %lld", nfull, headers.body.len);
+					ResponseFormat(responseBuff, SUCCESS_OK, headersBuff, headers.body.p);
+					SendResponse(sock, responseBuff);
+					free(headers.body.p);
+				} break;
 				default:
 					SendResponse(sock, ResponseStatus(ERR_INTERNAL_SERVER_ERR));
 					return SEND_ERROR;
@@ -204,7 +210,10 @@ ENUMT DoAction(RQSTHEADERS headers, CLIENTSTB *clients, SOCKET sock) {
 	return SUCCESS;
 }
 
-ENUMT EditStorage(RQSTHEADERS *headers, char *keydir) {
+ENUMT EditStorage(RQSTHEADERS *headers, uint16_t keyhash, CLIENT *client) {
+	char keydir[MAX_PATH] = {0};
+	sprintf(keydir, STORAGES_DIR"/%s/%x", client->storage, keyhash);
+
 	switch (headers->action) {
 		case ACT_PUT: {
 			FILE *keyfile = fopen(keydir, "a+");
@@ -220,19 +229,38 @@ ENUMT EditStorage(RQSTHEADERS *headers, char *keydir) {
 			fclose(keyfile);
 		} break;
 		case ACT_GET: {
-			FILE *keyfile = fopen(keydir, "r");
-			if (keyfile == NULL) return SEND_ERROR;
+			READINFO *rinfo = &client->rinfo;
+			if (rinfo->key != keyhash && rinfo->fp != NULL) {
+				fclose(rinfo->fp);
+				rinfo->fp = NULL;
+			}
+			if (rinfo->fp == NULL) {
+				rinfo->read = 0;
+				rinfo->key = keyhash;
+				rinfo->fp = fopen(keydir, "r");
+				if (rinfo->fp == NULL) return SEND_ERROR;
+			}
+			FILE *keyfile = rinfo->fp;
+			size_t readspace = rinfo->read * BODY_SLICE_SIZE;
 
 			fseek(keyfile, 0, SEEK_END);
 			size_t len = ftell(keyfile);
-			rewind(keyfile);
+			fseek(keyfile, readspace, SEEK_SET);
+			
+			size_t needread = len - readspace;
+			size_t canread = min(needread, BODY_SLICE_SIZE);
+			char *filebuff = ARRAlloc(char, canread+1);
+			fread(filebuff, 1, canread, keyfile);
+			filebuff[canread] = '\0';
 
-			char *filebuff = ARRAlloc(char, len+1);
-			fread(filebuff, 1, len, keyfile);
-			filebuff[len] = '\0';
 			headers->body.p = filebuff;
-
-			fclose(keyfile);
+			headers->body.len = canread;
+			if (needread > BODY_SLICE_SIZE)
+				rinfo->read++;
+			else {
+				fclose(rinfo->fp);
+				rinfo->fp = NULL;
+			}
 			return SEND_BODY;
 		}
 		case ACT_DELETE: { 

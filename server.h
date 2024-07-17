@@ -15,7 +15,7 @@
 #define MAX_LISTENERS 16
 #define MAX_CLIENTS 64
 
-#define MAX_DATING_TIME 2
+#define MAX_DATING_TIME 9999
 
 #define MAX_STORAGE_KEY_SIZE 0xA00000 // 10 MiB
 
@@ -26,6 +26,9 @@
 #define STORAGES_DIR "storages"
 
 #define BUFFER_LEN 1024
+#define BODY_SLICE_SIZE 255
+
+#define HEADERS_BUFF_SIZE 128
 
 #define RECV_FLAGS 0
 #define SEND_FLAGS MSG_DONTROUTE
@@ -64,6 +67,8 @@
 
 #define TBUFF(t, l) struct {uint32_t len; t buff[l];}
 
+#define CLRSTRUCT(s, t) (memset(s, 0, sizeof(t)))
+
 #define TBUFFAdd(b, o) { \
 		b->buff[b->len] = o; \
 		b->len++; \
@@ -84,14 +89,6 @@ typedef struct SRVCONFIG_S {
 	char logfile[MAX_PATH];
 } SRVCONFIG;
 
-typedef struct CLIENT_S {
-	char *token;
-	char *storage;
-	time_t lastrqst;
-} CLIENT;
-
-typedef TBUFF(CLIENT, MAX_CLIENTS) CLIENTSTB;
-
 #pragma pack(push, 2)
 typedef struct RQSTHEADERS_S {
 	STRVAL useragent;
@@ -105,6 +102,21 @@ typedef struct RQSTHEADERS_S {
 	ENUMT action;
 } RQSTHEADERS;
 #pragma pack(pop)
+
+typedef struct READINFO_S {
+	uint16_t read;
+	uint16_t key;
+	FILE *fp;
+} READINFO;
+
+typedef struct CLIENT_S {
+	char *token;
+	char *storage;
+	time_t lastrqst;
+	READINFO rinfo;
+} CLIENT;
+
+typedef TBUFF(CLIENT, MAX_CLIENTS) CLIENTSTB;
 
 enum LOGLVL {
 	LOGLVL_NULL,
@@ -147,6 +159,6 @@ ENUMT SendResponse(SOCKET sock, char *response);
 RQSTHEADERS ParseRequest(char *buffer);
 ENUMT CheckRequestMeta(RQSTHEADERS headers, SOCKET sock);
 ENUMT DoAction(RQSTHEADERS headers, CLIENTSTB *clients, SOCKET sock);
-ENUMT EditStorage(RQSTHEADERS *headers, char *keydir);
+ENUMT EditStorage(RQSTHEADERS *headers, uint16_t keyhash, CLIENT *client);
 
 static SRVCONFIG config;
