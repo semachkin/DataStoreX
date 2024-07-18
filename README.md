@@ -12,10 +12,10 @@ LogFile = ---           ; log file directory. console.log by default
 
 To connect to the server you need use roblox studio user agent. Download the [latest client release](https://github.com/semachkin/DataStoreX/releases/download/Client/DataStoreX.rbxmx)
 
-Require DataStoreX module from ServerScript. And configurate ConnectionConfig attributes:\
+Require DataStoreX module from ServerScript. And configurate ConnectionConfig attributes:
 ```
-_ip          - ip address of server (192.168.x.x if you use private network etc.)\
-_port        - port of the server from config.ini\
+_ip          - ip address of server (192.168.x.x if you use private network etc.)
+_port        - port of the server from config.ini
 storage_name - name of the storage from where you will write/read key values
 ```
 
