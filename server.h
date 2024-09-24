@@ -25,8 +25,8 @@
 
 #define STORAGES_DIR "storages"
 
-#define BUFFER_LEN 1024
-#define BODY_SLICE_SIZE 255
+#define BUFFER_LEN 51200 
+#define BODY_SLICE_SIZE 50176 
 
 #define HEADERS_BUFF_SIZE 128
 
