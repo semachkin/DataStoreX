@@ -15,7 +15,7 @@
 #define MAX_LISTENERS 16
 #define MAX_CLIENTS 64
 
-#define MAX_DATING_TIME 2
+#define MAX_DATING_TIME 15
 
 #define MAX_STORAGE_KEY_SIZE 0xA00000 // 10 MiB
 

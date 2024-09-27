@@ -242,7 +242,7 @@ ENUMT EditStorage(RQSTHEADERS *headers, uint16_t keyhash, CLIENT *client) {
 			}
 			FILE *keyfile = rinfo->fp;
 			size_t readspace = rinfo->read * BODY_SLICE_SIZE;
-
+			
 			fseek(keyfile, 0, SEEK_END);
 			size_t len = ftell(keyfile);
 			fseek(keyfile, readspace, SEEK_SET);
@@ -252,7 +252,7 @@ ENUMT EditStorage(RQSTHEADERS *headers, uint16_t keyhash, CLIENT *client) {
 			char *filebuff = ARRAlloc(char, canread+1);
 			fread(filebuff, 1, canread, keyfile);
 			filebuff[canread] = '\0';
-
+			
 			headers->body.p = filebuff;
 			headers->body.len = canread;
 			if (needread > BODY_SLICE_SIZE)
